@@ -1,4 +1,5 @@
 .vscode
 dist
+src/demo_lang/__pycache__
 testing.ipynb
 venv
