@@ -16,7 +16,8 @@ def parse(source):
         | 'cont'                                            { 'CONT' }
         | 'int'                                             { 'INT' }
         | 'bin'                                             { 'BIN' }
-    var_expr: 'ndarray' '(' ','.base_expr+ ')'              { 'FUNC', 'NDARRAY', []}
+    var_expr: 'ndarray' '(' shape ')'                       { 'FUNC', 'NDARRAY', shape }
+    shape: ','.base_expr+                                   
     constr_statement: 'constr' expr                         { 'CONSTR', None, [expr]}
     obj_statement: 'obj' obj_func expr                      { ('OBJ', obj_func, [expr])}
     obj_func:

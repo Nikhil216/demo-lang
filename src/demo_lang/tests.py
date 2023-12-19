@@ -1,3 +1,4 @@
+import pickle
 import unittest
 from . import compile
 
@@ -9,10 +10,11 @@ var cont y = ndarray (V)
 obj min sum (i:V) (j:V) c[i][j] * x[i][j]
 constr forall (i:V) sum (j:V, j != i) x[i][j] == 1
 constr forall (i:V, i != 0) (j:V, j != 0, j != i) y[i] - (n + 1)*x[i][j] >= y[j] - n"""
-        source_lines = len(source.split('\n'))
-        tree = compile.parse(source)
-        parsed_lines = len(tree)
-        self.assertEqual(parsed_lines, source_lines)
+        filename = 'src/demo_lang/assets/travelling_salesman_ast.pkl'
+        parse_tree = compile.parse(source)
+        with open(filename, 'rb') as f:
+            check_tree = pickle.load(f)
+        self.assertEqual(check_tree, parse_tree)
 
 if __name__ == '__main__':
     unittest.main()
