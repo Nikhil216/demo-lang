@@ -8,63 +8,63 @@ import pegen.utils
 
 def parse(source):
     grammer = """
-    start: root                                             { ('ROOT', None, root)}
+    start: root                                             { ('ROOT', None, root) }
     root: NEWLINE.statement+
     statement:
         | var_statement
         | obj_statement
         | constr_statement
-    var_statement: tk='var' var_type lhs=iden '=' rhs=var_expr { ('VAR', var_type, [lhs, rhs], tk)}
+    var_statement: tk='var' var_type lhs=iden '=' rhs=var_expr { ('VAR', var_type, [lhs, rhs], tk) }
     var_type:
         | 'cont'                                            { 'CONT' }
         | 'int'                                             { 'INT' }
         | 'bin'                                             { 'BIN' }
     var_expr:
-        | 'ndarray' '(' shape ')'                           { ('FUNC', 'NDARRAY', shape) }
+        | tk='ndarray' '(' shape ')'                        { ('FUNC', 'NDARRAY', shape, tk) }
     shape: ','.base_expr+                                   
-    constr_statement: 'constr' expr                         { ('CONSTR', None, [expr])}
-    obj_statement: 'obj' obj_func expr                      { ('OBJ', obj_func, [expr])}
+    constr_statement: tk='constr' expr                      { ('CONSTR', None, [expr], tk) }
+    obj_statement: tk='obj' obj_func expr                   { ('OBJ', obj_func, [expr], tk) }
     obj_func:
         | 'min'                                             { 'MIN' }
         | 'max'                                             { 'MAX' }
     expr:
         | func_expr
         | comp_op_expr
-    func_expr: func=func_iden b=block+ expr                 { (*func, [expr, *b])}
-    block: '(' it=iter_expr re=rest* ')'                    { ('BLOCK', None, [it, *re]) }
+    func_expr: func=func_iden b=block+ expr                 { (func[0], func[1], [expr, *b], func[2]) }
+    block: tk='(' it=iter_expr re=rest* ')'                 { ('BLOCK', None, [it, *re], tk) }
     rest: ',' comp_op_expr                                  { comp_op_expr }
     func_iden:
-        | 'sum'                                             { ('FUNC', 'SUM')}
-        | 'forall'                                          { ('FUNC', 'FORALL')}
-    iter_expr: lhs=iden ':' rhs=set_expr                    { ('OP', 'ITER', [lhs, rhs])}
+        | tk='sum'                                          { ('FUNC', 'SUM', tk) }
+        | tk='forall'                                       { ('FUNC', 'FORALL', tk) }
+    iter_expr: lhs=iden tk=':' rhs=set_expr                 { ('OP', 'ITER', [lhs, rhs], tk) }
     set_expr:
         | iden
     comp_op_expr:
-        | lhs=add_sub_op_expr op=comp_op rhs=add_sub_op_expr { (*op, [lhs, rhs])}
+        | lhs=add_sub_op_expr comp_op rhs=add_sub_op_expr   { (comp_op[0], comp_op[1], [lhs, rhs], comp_op[2]) }
         | add_sub_op_expr
     comp_op:
-        | '!='                                              { ('OP', 'NE')}
-        | '=='                                              { ('OP', 'EQ')}
-        | '<='                                              { ('OP', 'LE')}
-        | '>='                                              { ('OP', 'GE')}
-        | '<'                                               { ('OP', 'LT')}
-        | '>'                                               { ('OP', 'GT')}
+        | tk='!='                                           { ('OP', 'NE', tk) }
+        | tk='=='                                           { ('OP', 'EQ', tk) }
+        | tk='<='                                           { ('OP', 'LE', tk) }
+        | tk='>='                                           { ('OP', 'GE', tk) }
+        | tk='<'                                            { ('OP', 'LT', tk) }
+        | tk='>'                                            { ('OP', 'GT', tk) }
     add_sub_op_expr:
-        | lhs=mul_div_op_expr '+' rhs=add_sub_op_expr       { ('OP', 'ADD', [lhs, rhs])}
-        | lhs=mul_div_op_expr '-' rhs=add_sub_op_expr       { ('OP', 'SUB', [lhs, rhs])}
+        | lhs=mul_div_op_expr op='+' rhs=add_sub_op_expr    { ('OP', 'ADD', [lhs, rhs], op) }
+        | lhs=mul_div_op_expr op='-' rhs=add_sub_op_expr    { ('OP', 'SUB', [lhs, rhs], op) }
         | mul_div_op_expr
     mul_div_op_expr:
-        | lhs=paren_expr '*' rhs=mul_div_op_expr            { ('OP', 'MUL', [lhs, rhs])}
-        | lhs=paren_expr '/' rhs=mul_div_op_expr            { ('OP', 'DIV', [lhs, rhs])}
+        | lhs=paren_expr op='*' rhs=mul_div_op_expr         { ('OP', 'MUL', [lhs, rhs], op) }
+        | lhs=paren_expr op='/' rhs=mul_div_op_expr         { ('OP', 'DIV', [lhs, rhs], op) }
         | paren_expr
     paren_expr:
-        | '(' val=add_sub_op_expr ')'                       { ('OP', 'PAREN', [val])}
+        | tk='(' val=add_sub_op_expr ')'                    { ('OP', 'PAREN', [val], tk) }
         | base_expr
     base_expr:
         | slice_expr
         | iden
         | value
-    slice_expr: val=iden idx=sub_op+                        { ('OP', 'SLICE', [val, *idx])}
+    slice_expr: val=iden idx=sub_op+                        { ('OP', 'SLICE', [val, *idx], val[3]) }
     sub_op: '[' iden ']'                                    { iden }
     value: NUMBER                                           { ('VALUE', int(number.string), [], number) }
     iden: NAME                                              { ('IDEN', name.string, [], name) }
@@ -135,7 +135,10 @@ class ModelGenerator:
         self.prev_cursor = None
 
     def enter(self, idx):
-        print(f"enter: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}")
+        print(
+            f"enter: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
+            f" -> {self.curr_cursor[2][idx][0]} {self.curr_cursor[2][idx][1]}"
+        )
         children = self.curr_cursor[2]
         next_cursor = children[idx]
         children[idx] = self.prev_cursor
@@ -143,7 +146,10 @@ class ModelGenerator:
         self.curr_cursor = next_cursor
 
     def exit(self, idx):
-        print(f"exit: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}")
+        print(
+            f"exit: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
+            f" -> {self.prev_cursor[0]} {self.prev_cursor[1]}"
+        )
         next_cursor = self.curr_cursor
         self.curr_cursor = self.prev_cursor
         children = self.prev_cursor[2]
@@ -155,7 +161,9 @@ class ModelGenerator:
             case [x]:
                 arr_x = []
                 for i in range(x):
-                    self.model.add_var(f"{var_name}_{i}", var_type=var_type)
+                    arr_x.append(
+                        self.model.add_var(f"{var_name}_{i}", var_type=var_type)
+                    )
                 return arr_x
             case [x, y]:
                 arr_x = []
@@ -182,7 +190,7 @@ class ModelGenerator:
                         arr_y.append(arr_z)
                     arr_x.append(arr_y)
                 return arr_x
-            case [x, y, z, *rest]:
+            case [x, y, z, *_]:
                 raise CompilerError(f"Cannot create arrays with dimension {len(shape)}")
             case _:
                 raise CompilerError(f"Undefiend array dimension {shape}")
@@ -206,33 +214,66 @@ class ModelGenerator:
                 self.exit(1)
 
     def var_lhs(self):
-        match self.curr_cursor:
-            case ("IDEN", var_name, [], tk_info):
-                return var_name
-            case _:
-                raise CompilerError(
-                    f"Cannot assign lhs to {self.curr_cursor[0:2]} at {tk_info.start} on line {tk_info.line}"
-                )
+        return self.iden_lhs()
 
     def var_expr(self, var_name, var_type):
         match self.curr_cursor:
-            case ("FUNC", "NDARRAY", shape):
+            case ("FUNC", "NDARRAY", shape, _):
                 shape_arr = []
                 for i in range(len(shape)):
                     self.enter(i)
-                    shape_arr.append(self.value())
+                    shape_arr.append(self.base_expr())
                     self.exit(i)
                 return self.ndarray(var_name, var_type, shape_arr)
             case _:
                 raise CompilerError(
                     f"Cannot assign variable {var_name} with {self.curr_cursor[0]} {self.curr_cursor[1]}"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
     def value(self):
         match self.curr_cursor:
-            case ("VALUE", num, _, tk_info):
+            case ("VALUE", num, _, _):
                 return num
             case _:
                 raise CompilerError(
-                    f"Expected a value instead got the token {self.curr_cursor[0]} at {tk_info.start} on line {tk_info.line}"
+                    f"Expected a value instead got the token {self.curr_cursor[0]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+
+    def iden_lhs(self):
+        match self.curr_cursor:
+            case ("IDEN", var_name, [], _):
+                return var_name
+            case _:
+                raise CompilerError(
+                    f"Cannot assign to variable {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+
+    def iden_rhs(self):
+        match self.curr_cursor:
+            case ("IDEN", var_name, [], tk_info):
+                if var_name in self.iden_table:
+                    return self.iden_table[var_name]
+                elif var_name in self.locals:
+                    return self.locals[var_name]
+                else:
+                    raise CompilerError(
+                        f"Undefiend variable {self.curr_cursor[0:2]} at {tk_info.start} on line '{tk_info.line}'"
+                    )
+            case _:
+                raise CompilerError(
+                    f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+
+    def base_expr(self):
+        match self.curr_cursor:
+            case ("SLICE", *_):
+                raise NotImplemented
+            case ("IDEN", *_):
+                return self.iden_rhs()
+            case ("VALUE", *_):
+                return self.value()
+            case _:
+                raise CompilerError(
+                    f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
