@@ -1,4 +1,5 @@
 import io
+import itertools
 import tokenize
 
 import mip
@@ -115,8 +116,7 @@ FUNCS = [
 VARS = ["CONT", "BIN", "INT"]
 
 
-class CompilerError(Exception):
-    ...
+class CompilerError(Exception): ...
 
 
 class ModelGenerator:
@@ -126,9 +126,14 @@ class ModelGenerator:
         "INT": mip.INTEGER,
     }
 
+    obj_func_map = {
+        "max": mip.maximize,
+        "min": mip.minimize,
+    }
+
     def __init__(self, model_name, root, locals):
         self.model = mip.Model(model_name)
-        self.iden_table = {}
+        self.scope = {}
         self.root = root
         self.locals = locals.copy()
         self.curr_cursor = root
@@ -146,10 +151,10 @@ class ModelGenerator:
         self.curr_cursor = next_cursor
 
     def exit(self, idx):
-        print(
-            f"exit: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
-            f" -> {self.prev_cursor[0]} {self.prev_cursor[1]}"
-        )
+        # print(
+        #     f"exit: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
+        #     f" -> {self.prev_cursor[0]} {self.prev_cursor[1]}"
+        # )
         next_cursor = self.curr_cursor
         self.curr_cursor = self.prev_cursor
         children = self.prev_cursor[2]
@@ -210,13 +215,24 @@ class ModelGenerator:
                 var_name = self.var_lhs()
                 self.exit(0)
                 self.enter(1)
-                self.iden_table[var_name] = self.var_expr(var_name, var_type_str)
+                expr_eval = self.var_expr(var_name, var_type_str)
                 self.exit(1)
+                self.scope[var_name] = expr_eval(self.scope)
+            case ("OBJ", obj_func, _, _):
+                self.enter(0)
+                expr_eval = self.expr()
+                self.exit(0)
+                self.model.objective = self.obj_func_map[obj_func](expr_eval(self.scope))
+            case _:
+                raise CompilerError(
+                    f"Expected a statement at the start of the program instead found: {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
 
     def var_lhs(self):
         return self.iden_lhs()
 
-    def var_expr(self, var_name, var_type):
+    def var_expr(self, var_name, var_type) -> function:
         match self.curr_cursor:
             case ("FUNC", "NDARRAY", shape, _):
                 shape_arr = []
@@ -224,7 +240,7 @@ class ModelGenerator:
                     self.enter(i)
                     shape_arr.append(self.base_expr())
                     self.exit(i)
-                return self.ndarray(var_name, var_type, shape_arr)
+                return lambda scope: self.ndarray(var_name, var_type, shape_arr)
             case _:
                 raise CompilerError(
                     f"Cannot assign variable {var_name} with {self.curr_cursor[0]} {self.curr_cursor[1]}"
@@ -234,10 +250,10 @@ class ModelGenerator:
     def value(self):
         match self.curr_cursor:
             case ("VALUE", num, _, _):
-                return num
+                return lambda scope: num
             case _:
                 raise CompilerError(
-                    f"Expected a value instead got the token {self.curr_cursor[0]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f"Expected a value instead found the token {self.curr_cursor[0]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
     def iden_lhs(self):
@@ -249,26 +265,28 @@ class ModelGenerator:
                     f"Cannot assign to variable {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def iden_rhs(self):
+    def iden_rhs(self) -> function:
         match self.curr_cursor:
             case ("IDEN", var_name, [], tk_info):
-                if var_name in self.iden_table:
-                    return self.iden_table[var_name]
-                elif var_name in self.locals:
-                    return self.locals[var_name]
+                if var_name in self.locals:
+                    return lambda scope: self.locals[var_name]
                 else:
-                    raise CompilerError(
-                        f"Undefiend variable {self.curr_cursor[0:2]} at {tk_info.start} on line '{tk_info.line}'"
-                    )
+                    def evaluator(scope):
+                        if var_name not in scope:
+                            raise CompilerError(
+                                f"Undefiend variable {self.curr_cursor[0:2]} at {tk_info.start} on line '{tk_info.line}'"
+                            )
+                        return scope[var_name]
+                    return evaluator
             case _:
                 raise CompilerError(
                     f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def base_expr(self):
+    def base_expr(self) -> function:
         match self.curr_cursor:
-            case ("SLICE", *_):
-                raise NotImplemented
+            case ("OP", "SLICE"):
+                return self.op_expr()
             case ("IDEN", *_):
                 return self.iden_rhs()
             case ("VALUE", *_):
@@ -277,3 +295,161 @@ class ModelGenerator:
                 raise CompilerError(
                     f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
+
+    def expr(self) -> function:
+        match self.curr_cursor:
+            case ("FUNC", *_):
+                return self.func()
+            case ("OP", *_):
+                return self.op_expr()
+            case _:
+                raise CompilerError(
+                    f"Expected an expression instead found: {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+
+    def func(self) -> function:
+        match self.curr_cursor:
+            case ("FUNC", "SUM", children, _):
+                blocks = []
+                for idx in range(1, len(children)):
+                    self.enter(idx)
+                    blocks.append(self.block())
+                    self.exit(idx)
+                self.enter(0)
+                expr_eval = self.expr()
+                self.exit(0)
+                block_eval = self.compose_blocks(blocks, expr_eval)
+                return lambda scope: mip.xsum(block_eval(scope))
+            case ("FUNC", "FORALL", _, _):
+                raise NotImplemented
+            case ("FUNC", *_):
+                raise CompilerError(
+                    f"Unknow function {self.curr_cursor[1]} encountered"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+                
+    def compose_blocks(self, blocks) -> function:
+        # TODO: Deal with comparision as well
+        return lambda scope: itertools.product(b(scope) for b in blocks)
+
+    def block(self) -> function:
+        match self.curr_cursor:
+            case ("BLOCK", None, _, _):
+                self.enter(0)
+                expr_eval = self.op_expr()
+                self.exit(0)
+                return 
+            case _:
+                raise CompilerError(
+                    f"Expected function block instead found: {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
+
+    def set_expr(self):
+        return self.iden_rhs()
+
+    def op_expr(self):
+        match self.curr_cursor:
+            case ("OP", "ITER", children, _):
+                self.enter(0)
+                var_name = self.iden_lhs()
+                self.exit(0)
+                self.enter(1)
+                expr = self.set_expr()
+                self.exit(1)
+                return [var_name, expr]
+            case ("OP", "NE", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["!=", lhs, rhs]
+            case ("OP", "EQ", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["==", lhs, rhs]
+            case ("OP", "LE", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["<=", lhs, rhs]
+            case ("OP", "GE", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return [">=", lhs, rhs]
+            case ("OP", "LT", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["<", lhs, rhs]
+            case ("OP", "GT", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return [">", lhs, rhs]
+            case ("OP", "ADD", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["+", lhs, rhs]
+            case ("OP", "SUB", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["-", lhs, rhs]
+            case ("OP", "MUL", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["*", lhs, rhs]
+            case ("OP", "DIV", _, _):
+                self.enter(0)
+                lhs = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                rhs = self.op_expr()
+                self.exit(1)
+                return ["/", lhs, rhs]
+            case ("OP", "PAREN", _, _):
+                self.enter(0)
+                expr = self.op_expr()
+                self.exit(0)
+                return [expr]
+            case ("OP", "SLICE", children, _):
+                vs = []
+                for idx in range(len(children)):
+                    self.enter(idx)
+                    vs.append(self.iden_rhs())
+                    self.exit(idx)
+                return [vs[0], vs[1:]]
+            case _:
+                return self.base_expr()
