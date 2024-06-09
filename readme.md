@@ -13,5 +13,6 @@ Demo is not trying to be flexible or comprehensive. As a result some job schedul
 ## Tasks
 
 - [ ] Add scoping
+- [ ] let locals be handleded by scoping
 - [ ] Check for existing variables in `iden_table`
 - [ ] better model for scoping
