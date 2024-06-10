@@ -9,7 +9,7 @@ import pegen.utils
 
 
 def parse(source):
-    grammer = """
+    grammar = """
     start: root                                             { ('ROOT', None, root) }
     root: NEWLINE.statement+
     statement:
@@ -60,7 +60,7 @@ def parse(source):
         | lhs=paren_expr op='/' rhs=mul_div_op_expr         { ('OP', 'DIV', [lhs, rhs], op) }
         | paren_expr
     paren_expr:
-        | tk='(' val=add_sub_op_expr ')'                    { ('OP', 'PAREN', [val], tk) }
+        | tk='(' val=expr ')'                               { ('OP', 'PAREN', [val], tk) }
         | base_expr
     base_expr:
         | slice_expr
@@ -73,7 +73,7 @@ def parse(source):
     """
 
     file = io.StringIO(source)
-    parser_class = pegen.utils.make_parser(grammer)
+    parser_class = pegen.utils.make_parser(grammar)
     tokengen = tokenize.generate_tokens(file.readline)
     tokenizer = pegen.tokenizer.Tokenizer(tokengen, verbose=False)
     parser = parser_class(tokenizer, verbose=False)
@@ -140,10 +140,10 @@ class ModelGenerator:
         self.prev_cursor = None
 
     def enter(self, idx):
-        print(
-            f"enter: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
-            f" -> {self.curr_cursor[2][idx][0]} {self.curr_cursor[2][idx][1]}"
-        )
+        # print(
+        #     f"enter: {self.curr_cursor[0]} {self.curr_cursor[1]} {idx}"
+        #     f" -> {self.curr_cursor[2][idx][0]} {self.curr_cursor[2][idx][1]}"
+        # )
         children = self.curr_cursor[2]
         next_cursor = children[idx]
         children[idx] = self.prev_cursor
@@ -207,6 +207,7 @@ class ModelGenerator:
             self.enter(idx)
             scope = self.statement()(scope)
             self.exit(idx)
+        return scope
 
     def statement(self):
         match self.curr_cursor:
@@ -218,17 +219,31 @@ class ModelGenerator:
                 self.enter(1)
                 expr_eval = self.var_expr(var_name, var_type_str)
                 self.exit(1)
+
                 def evaluator(scope):
                     scope[var_name] = expr_eval(scope)
                     return scope
+
                 return evaluator
             case ("OBJ", obj_func, _, _):
                 self.enter(0)
                 expr_eval = self.expr()
                 self.exit(0)
+
                 def evaluator(scope):
                     self.model.objective = self.obj_func_map[obj_func](expr_eval(scope))
                     return scope
+
+                return evaluator
+            case ("CONSTR", None, children, _):
+                self.enter(0)
+                expr_eval = self.expr()
+                self.exit(0)
+
+                def evaluator(scope):
+                    self.model.add_constr(expr_eval(scope))
+                    return scope
+
                 return evaluator
             case _:
                 raise CompilerError(
@@ -239,7 +254,7 @@ class ModelGenerator:
     def var_lhs(self):
         return self.iden_lhs()
 
-    def var_expr(self, var_name, var_type) :
+    def var_expr(self, var_name, var_type):
         match self.curr_cursor:
             case ("FUNC", "NDARRAY", shape, _):
                 shape_arr = []
@@ -247,7 +262,9 @@ class ModelGenerator:
                     self.enter(i)
                     shape_arr.append(self.base_expr())
                     self.exit(i)
-                return lambda s: self.ndarray(var_name, var_type, [ee(s) for ee in shape_arr])
+                return lambda s: self.ndarray(
+                    var_name, var_type, [ee(s) for ee in shape_arr]
+                )
             case _:
                 raise CompilerError(
                     f"Cannot assign variable {var_name} with {self.curr_cursor[0]} {self.curr_cursor[1]}"
@@ -272,22 +289,24 @@ class ModelGenerator:
                     f"Cannot assign to variable {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def iden_rhs(self) :
+    def iden_rhs(self):
         match self.curr_cursor:
             case ("IDEN", var_name, [], tk_info):
+
                 def evaluator(scope):
                     if var_name not in scope:
                         raise CompilerError(
                             f"Undefiend variable {self.curr_cursor[0:2]} at {tk_info.start} on line '{tk_info.line}'"
                         )
                     return scope[var_name]
+
                 return evaluator
             case _:
                 raise CompilerError(
                     f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def base_expr(self) :
+    def base_expr(self):
         match self.curr_cursor:
             case ("OP", "SLICE"):
                 return self.op_expr()
@@ -300,7 +319,7 @@ class ModelGenerator:
                     f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def expr(self) :
+    def expr(self):
         match self.curr_cursor:
             case ("FUNC", *_):
                 return self.func()
@@ -312,7 +331,7 @@ class ModelGenerator:
                     f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
 
-    def func(self) :
+    def func(self):
         match self.curr_cursor:
             case ("FUNC", "SUM", children, _):
                 block_evals = []
@@ -332,8 +351,8 @@ class ModelGenerator:
                     f"Unknow function {self.curr_cursor[1]} encountered"
                     f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
                 )
-                
-    def compose_blocks(self, block_evals, expr_eval) :
+
+    def compose_blocks(self, block_evals, expr_eval):
         # TODO: Deal with comparisions as well
         def evaluator(scope):
             blocks = {}
@@ -344,9 +363,10 @@ class ModelGenerator:
             for indices in index_iters:
                 s = {**scope, **dict(zip(index_names, indices))}
                 yield expr_eval(s)
+
         return evaluator
 
-    def block(self) :
+    def block(self):
         match self.curr_cursor:
             case ("BLOCK", None, _, _):
                 self.enter(0)
@@ -371,7 +391,7 @@ class ModelGenerator:
                 self.enter(1)
                 expr_eval = self.set_expr()
                 self.exit(1)
-                return lambda scope: ({var_name: range(len(expr_eval(scope)))})
+                return lambda scope: ({var_name: range(expr_eval(scope))})
             case ("OP", "NE", _, _):
                 self.enter(0)
                 lhs = self.op_expr()
@@ -454,20 +474,22 @@ class ModelGenerator:
                 return lambda scope: lhs(scope) / rhs(scope)
             case ("OP", "PAREN", _, _):
                 self.enter(0)
-                expr = self.op_expr()
+                expr_eval = self.expr()
                 self.exit(0)
-                return lambda scope: expr(scope)
+                return lambda scope: expr_eval(scope)
             case ("OP", "SLICE", children, _):
                 vs = []
                 for idx in range(len(children)):
                     self.enter(idx)
                     vs.append(self.iden_rhs())
                     self.exit(idx)
+
                 def evaluator(scope):
                     x = vs[0](scope)
                     for i in vs[1:]:
                         x = x[i(scope)]
                     return x
+
                 return evaluator
             case _:
                 return self.base_expr()
