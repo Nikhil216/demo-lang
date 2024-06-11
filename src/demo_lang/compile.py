@@ -1,6 +1,5 @@
-from pprint import pprint
+from collections.abc import Generator
 import io
-import itertools
 import tokenize
 
 import mip
@@ -115,6 +114,28 @@ FUNCS = [
 ]
 
 VARS = ["CONT", "BIN", "INT"]
+
+
+def empty():
+    def evaluator(scope):
+        def generator():
+            yield {}
+
+        return generator()
+
+    return evaluator
+
+
+def append(fst, snd):
+    def evaluator(scope):
+        def generator():
+            for f in fst(scope):
+                for s in snd({**scope, **f}):
+                    yield {**f, **s}
+
+        return generator()
+
+    return evaluator
 
 
 class CompilerError(Exception): ...
@@ -235,13 +256,18 @@ class ModelGenerator:
                     return scope
 
                 return evaluator
-            case ("CONSTR", None, children, _):
+            case ("CONSTR", None, _, _):
                 self.enter(0)
                 expr_eval = self.expr()
                 self.exit(0)
 
                 def evaluator(scope):
-                    self.model.add_constr(expr_eval(scope))
+                    expr = expr_eval(scope)
+                    if isinstance(expr, Generator):
+                        for e in expr:
+                            self.model.add_constr(e)
+                    else:
+                        self.model.add_constr(expr)
                     return scope
 
                 return evaluator
@@ -344,8 +370,17 @@ class ModelGenerator:
                 self.exit(0)
                 block_eval = self.compose_blocks(block_evals, expr_eval)
                 return lambda scope: mip.xsum(block_eval(scope))
-            case ("FUNC", "FORALL", _, _):
-                raise NotImplemented
+            case ("FUNC", "FORALL", children, _):
+                block_evals = []
+                for idx in range(1, len(children)):
+                    self.enter(idx)
+                    block_evals.append(self.block())
+                    self.exit(idx)
+                self.enter(0)
+                expr_eval = self.expr()
+                self.exit(0)
+                block_eval = self.compose_blocks(block_evals, expr_eval)
+                return block_eval
             case ("FUNC", *_):
                 raise CompilerError(
                     f"Unknow function {self.curr_cursor[1]} encountered"
@@ -353,26 +388,40 @@ class ModelGenerator:
                 )
 
     def compose_blocks(self, block_evals, expr_eval):
-        # TODO: Deal with comparisions as well
         def evaluator(scope):
-            blocks = {}
+            index_eval = empty()
             for block_eval in block_evals:
-                blocks.update(block_eval(scope))
-            index_names = blocks.keys()
-            index_iters = itertools.product(*blocks.values())
-            for indices in index_iters:
-                s = {**scope, **dict(zip(index_names, indices))}
+                index_eval = append(index_eval, block_eval)
+            for indices in index_eval(scope):
+                s = {**scope, **indices}
                 yield expr_eval(s)
 
         return evaluator
 
     def block(self):
         match self.curr_cursor:
-            case ("BLOCK", None, _, _):
+            case ("BLOCK", None, children, _):
                 self.enter(0)
-                expr_eval = self.op_expr()
+                iter_eval = self.op_expr()
                 self.exit(0)
-                return expr_eval
+                comp_evals = []
+                for idx in range(1, len(children)):
+                    self.enter(idx)
+                    comp_evals.append(self.op_expr())
+                    self.exit(idx)
+
+                def evaluator(scope):
+                    def generator():
+                        for val in iter_eval(scope):
+                            cond = True
+                            for e in comp_evals:
+                                cond = cond and e({**scope, **val})
+                            if cond:
+                                yield val
+
+                    return generator()
+
+                return evaluator
             case _:
                 raise CompilerError(
                     f"Expected function block instead found: {self.curr_cursor[0:2]}"
@@ -384,14 +433,22 @@ class ModelGenerator:
 
     def op_expr(self):
         match self.curr_cursor:
-            case ("OP", "ITER", children, _):
+            case ("OP", "ITER", _, _):
                 self.enter(0)
                 var_name = self.iden_lhs()
                 self.exit(0)
                 self.enter(1)
                 expr_eval = self.set_expr()
                 self.exit(1)
-                return lambda scope: ({var_name: range(expr_eval(scope))})
+
+                def evaluator(scope):
+                    def generator():
+                        for i in range(expr_eval(scope)):
+                            yield {var_name: i}
+
+                    return generator()
+
+                return evaluator
             case ("OP", "NE", _, _):
                 self.enter(0)
                 lhs = self.op_expr()
