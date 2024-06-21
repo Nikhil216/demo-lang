@@ -153,11 +153,11 @@ class ModelGenerator:
         "MIN": mip.minimize,
     }
 
-    def __init__(self, model_name, root, locals):
+    def __init__(self, model_name, source, locals):
         self.model = mip.Model(model_name)
-        self.root = root
+        self.root = parse(source)
         self.locals = locals.copy()
-        self.curr_cursor = root
+        self.curr_cursor = self.root
         self.prev_cursor = None
 
     def enter(self, idx):
