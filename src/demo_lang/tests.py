@@ -3,15 +3,15 @@ import unittest
 from . import compile
 
 knapsack_source = """var bin x = ndarray(I)
-obj max sum (i:I) p[i] * x[i]
-constr (sum (i:I) w[i] * x[i]) <= c"""
+obj max sum (i:=I) p[i] * x[i]
+constr (sum (i:=I) w[i] * x[i]) <= c"""
 
 travelling_salesman_source = """var bin x = ndarray (n, n)
 var cont y = ndarray (n)
-obj min sum (i:n) (j:n) c[i][j] * x[i][j]
-constr forall (i:n) (sum (j:n, i != j) x[i][j]) == 1
-constr forall (i:n) (sum (j:n, i != j) x[j][i]) == 1
-constr forall (i:n, i != 0) (j:n, j != 0, i != j) y[i] - (n + 1) * x[i][j] >= y[j] - n"""
+obj min sum (i:=n) (j:=n) c[i][j] * x[i][j]
+constr forall (i:=n) (sum (j:=n, i != j) x[i][j]) == 1
+constr forall (i:=n) (sum (j:=n, i != j) x[j][i]) == 1
+constr forall (i:=n, i != 0) (j:=n, j != 0, i != j) y[i] - (n + 1) * x[i][j] >= y[j] - n"""
 
 
 class TestParser(unittest.TestCase):
@@ -36,7 +36,7 @@ class TestEvaluator(unittest.TestCase):
     def test_knapsack_problem(self):
         gen = compile.ModelGenerator(
             "knapsack",
-            compile.parse(knapsack_source),
+            knapsack_source,
             {
                 "p": [10, 13, 18, 31, 7, 15],
                 "w": [11, 15, 20, 35, 10, 33],
@@ -77,7 +77,7 @@ class TestEvaluator(unittest.TestCase):
         ]
         gen = compile.ModelGenerator(
             "Travelling Salesman Problem",
-            compile.parse(travelling_salesman_source),
+            travelling_salesman_source,
             {
                 "n": n,
                 "c": c,

@@ -37,8 +37,9 @@ def parse(source):
     func_iden:
         | tk='sum'                                          { ('FUNC', 'SUM', tk) }
         | tk='forall'                                       { ('FUNC', 'FORALL', tk) }
-    iter_expr: lhs=iden tk=':' rhs=set_expr                 { ('OP', 'ITER', [lhs, rhs], tk) }
+    iter_expr: lhs=iden tk=':=' rhs=set_expr                { ('OP', 'ITER', [lhs, rhs], tk) }
     set_expr:
+        | lhs=add_sub_op_expr tk=':' rhs=add_sub_op_expr    { ('OP', 'RANGE', [lhs, rhs], tk) }
         | iden
     comp_op_expr:
         | lhs=add_sub_op_expr comp_op rhs=add_sub_op_expr   { (comp_op[0], comp_op[1], [lhs, rhs], comp_op[2]) }
@@ -55,18 +56,16 @@ def parse(source):
         | lhs=mul_div_op_expr op='-' rhs=add_sub_op_expr    { ('OP', 'SUB', [lhs, rhs], op) }
         | mul_div_op_expr
     mul_div_op_expr:
-        | lhs=paren_expr op='*' rhs=mul_div_op_expr         { ('OP', 'MUL', [lhs, rhs], op) }
-        | lhs=paren_expr op='/' rhs=mul_div_op_expr         { ('OP', 'DIV', [lhs, rhs], op) }
-        | paren_expr
-    paren_expr:
-        | tk='(' val=expr ')'                               { ('OP', 'PAREN', [val], tk) }
+        | lhs=base_expr op='*' rhs=mul_div_op_expr         { ('OP', 'MUL', [lhs, rhs], op) }
+        | lhs=base_expr op='/' rhs=mul_div_op_expr         { ('OP', 'DIV', [lhs, rhs], op) }
         | base_expr
     base_expr:
+        | tk='(' val=expr ')'                               { ('OP', 'PAREN', [val], tk) }
         | slice_expr
         | iden
         | value
     slice_expr: val=iden idx=sub_op+                        { ('OP', 'SLICE', [val, *idx], val[3]) }
-    sub_op: '[' iden ']'                                    { iden }
+    sub_op: '[' add_sub_op_expr ']'                         { add_sub_op_expr }
     value: NUMBER                                           { ('VALUE', int(number.string), [], number) }
     iden: NAME                                              { ('IDEN', name.string, [], name) }
     """
@@ -334,7 +333,7 @@ class ModelGenerator:
 
     def base_expr(self):
         match self.curr_cursor:
-            case ("OP", "SLICE"):
+            case ("OP", *_):
                 return self.op_expr()
             case ("IDEN", *_):
                 return self.iden_rhs()
@@ -429,10 +428,39 @@ class ModelGenerator:
                 )
 
     def set_expr(self):
-        return self.iden_rhs()
+        match self.curr_cursor:
+            case ("IDEN", _, _, _):
+                expr_eval = self.iden_rhs()
+
+                def evaluator(scope):
+                    n = expr_eval(scope)
+                    return range(n)
+
+                return evaluator
+            case ("OP", "RANGE", _, _):
+                return self.op_expr()
+            case _:
+                raise CompilerError(
+                    f"Expected range operator instead found: {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                )
 
     def op_expr(self):
         match self.curr_cursor:
+            case ("OP", "RANGE", _, _):
+                self.enter(0)
+                start_expr_eval = self.op_expr()
+                self.exit(0)
+                self.enter(1)
+                end_expr_eval = self.op_expr()
+                self.exit(1)
+
+                def evaluator(scope):
+                    start = start_expr_eval(scope)
+                    end = end_expr_eval(scope)
+                    return range(start, end + 1)
+
+                return evaluator
             case ("OP", "ITER", _, _):
                 self.enter(0)
                 var_name = self.iden_lhs()
@@ -443,7 +471,7 @@ class ModelGenerator:
 
                 def evaluator(scope):
                     def generator():
-                        for i in range(expr_eval(scope)):
+                        for i in expr_eval(scope):
                             yield {var_name: i}
 
                     return generator()
@@ -538,7 +566,7 @@ class ModelGenerator:
                 vs = []
                 for idx in range(len(children)):
                     self.enter(idx)
-                    vs.append(self.iden_rhs())
+                    vs.append(self.op_expr())
                     self.exit(idx)
 
                 def evaluator(scope):
