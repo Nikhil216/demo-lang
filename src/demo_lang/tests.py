@@ -1,3 +1,4 @@
+from itertools import product
 import pickle
 import unittest
 from . import compile
@@ -19,6 +20,14 @@ constr forall (j:=n) (sum (i:=n) x[i][j]) == 1
 constr forall (k:=2-n:n-2) (sum (i:=n, 0 <= i - k, i - k < n) x[i][i - k]) <= 1
 constr forall (k:=1:2*n-3) (sum (i:=n, 0 <= k - i, k - i < n) x[i][k - i]) <= 1"""
 
+frequency_assignment_source = """var bin x = ndarray(N, U)
+var cont z = ndarray(1)
+obj min z[0]
+constr forall (i:=N) (sum (c:=U) x[i][c]) == r[i]
+constr forall (i:=N) (j:=N, i != j) (c1:=U) (c2:=U, c1 <= c2, c2 < c1 + d[i][j]) (x[i][c1] + x[j][c2] <= 1)
+constr forall (i:=N) (c1:=U) (c2:=U, c1 < c2, c2 < c1 + d[i][i]) (x[i][c1] + x[i][c2] <= 1)
+constr forall (i:=N) (c:=U) (z[0] >= (c + 1) * x[i][c])"""
+
 
 class TestParser(unittest.TestCase):
 
@@ -39,6 +48,13 @@ class TestParser(unittest.TestCase):
     def test_knapsack_problem(self):
         filename = "src/demo_lang/assets/knapsack_ast.pkl"
         parse_tree = compile.parse(knapsack_source)
+        with open(filename, "rb") as f:
+            check_tree = pickle.load(f)
+        self.assertEqual(check_tree, parse_tree)
+
+    def test_frequency_assignment_problem(self):
+        filename = "src/demo_lang/assets/frequency_assignment_ast.pkl"
+        parse_tree = compile.parse(frequency_assignment_source)
         with open(filename, "rb") as f:
             check_tree = pickle.load(f)
         self.assertEqual(check_tree, parse_tree)
@@ -168,7 +184,50 @@ class TestEvaluator(unittest.TestCase):
             for j, square in enumerate(row):
                 if square.x > 0.99:
                     attempt.append((i, j))
-        assert solution == attempt
+        self.assertEqual(solution, attempt)
+
+    def test_frequency_assignment(self):
+        solution = [
+            [6, 12, 32],
+            [4, 10, 16, 22, 28],
+            [2, 8, 14, 20, 26, 32, 37, 40],
+            [7, 13, 19],
+            [0, 4, 10, 16, 24, 37],
+            [2, 8, 14, 20, 26],
+            [0, 6, 12, 18, 24, 30, 35],
+            [0, 16, 21],
+        ]
+        r = [3, 5, 8, 3, 6, 5, 7, 3]
+        d = [
+            [3, 2, 0, 0, 2, 2, 0, 0],
+            [2, 3, 2, 0, 0, 2, 2, 0],
+            [0, 2, 3, 0, 0, 0, 3, 0],
+            [0, 0, 0, 3, 2, 0, 0, 2],
+            [2, 0, 0, 2, 3, 2, 0, 0],
+            [2, 2, 0, 0, 2, 3, 2, 0],
+            [0, 2, 2, 0, 0, 2, 3, 0],
+            [0, 0, 0, 2, 0, 0, 0, 3],
+        ]
+        N = len(r)
+        U = sum(d[i][j] for (i, j) in product(range(N), range(N))) + sum(el for el in r)
+        gen = compile.ModelGenerator(
+            "Frequency Assignment",
+            frequency_assignment_source,
+            {
+                "r": r,
+                "d": d,
+                "N": N,
+                "U": U,
+            },
+        )
+        scope = gen.generate()
+        gen.model.verbose = 0
+        gen.model.optimize(max_nodes=30)
+        attempt = []
+        if gen.model.num_solutions:
+            for i in range(N):
+                attempt.append([c for c in range(U) if scope["x"][i][c].x >= 0.99])
+        self.assertEqual(solution, attempt)
 
 
 if __name__ == "__main__":

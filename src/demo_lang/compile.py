@@ -78,43 +78,6 @@ def parse(source):
     return parser.start()
 
 
-NODES = [
-    "IDEN",
-    "VALUE",
-    "SLICE",
-    "OP",
-    "FUNC",
-    "OBJ",
-    "CONSTR",
-    "VAR",
-    "BLOCK",
-    "TREE",
-]
-
-OPS = [
-    "SLICE",
-    "PAREN",
-    "MUL",
-    "DIV",
-    "ADD",
-    "SUB",
-    "NE",
-    "EQ",
-    "LT",
-    "GT",
-    "LE",
-    "GE",
-    "ITER",
-]
-
-FUNCS = [
-    "FORALL",
-    "SUM",
-]
-
-VARS = ["CONT", "BIN", "INT"]
-
-
 def empty():
     def evaluator(scope):
         def generator():
