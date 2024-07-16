@@ -31,8 +31,8 @@ def parse(source):
     expr:
         | func_expr
         | comp_op_expr
-    func_expr: func=func_iden b=block+ expr                 { (func[0], func[1], [expr, *b], func[2]) }
-    block: tk='(' it=iter_expr re=rest* ')'                 { ('BLOCK', None, [it, *re], tk) }
+    func_expr: func=func_iden b=block+ e=expr               { (func[0], func[1], [e, *b], func[2]) }
+    block: tk='(' it=','.iter_expr+ re=rest* ')'            { ('BLOCK', None, [*it, *re], tk) }
     rest: ',' comp_op_expr                                  { comp_op_expr }
     func_iden:
         | tk='sum'                                          { ('FUNC', 'SUM', tk) }
@@ -97,6 +97,17 @@ def append(fst, snd):
 
         return generator()
 
+    return evaluator
+
+
+def concat(fst, snd):
+    def evaluator(scope):
+        def generator():
+            for f, s in zip(fst(scope), snd(scope)):
+                yield {**f, **s}
+            
+        return generator()
+    
     return evaluator
 
 
@@ -363,18 +374,41 @@ class ModelGenerator:
     def block(self):
         match self.curr_cursor:
             case ("BLOCK", None, children, _):
-                self.enter(0)
-                iter_eval = self.op_expr()
-                self.exit(0)
+                iter_evals = []
                 comp_evals = []
-                for idx in range(1, len(children)):
+                for idx in range(len(children)):
                     self.enter(idx)
-                    comp_evals.append(self.op_expr())
+                    expr_eval = self.op_expr()
+                    match self.curr_cursor:
+                        case ("OP", "ITER", _, _):
+                            iter_evals.append(expr_eval)
+                        case ("OP", "LT", _, _):
+                            comp_evals.append(expr_eval)
+                        case ("OP", "GT", _, _):
+                            comp_evals.append(expr_eval)
+                        case ("OP", "LE", _, _):
+                            comp_evals.append(expr_eval)
+                        case ("OP", "GE", _, _):
+                            comp_evals.append(expr_eval)
+                        case ("OP", "EQ", _, _):
+                            comp_evals.append(expr_eval)
+                        case ("OP", "NE", _, _):
+                            comp_evals.append(expr_eval)
+                        case _:
+                            raise CompilerError(
+                                f"Expected iter or comp expr instead found: {self.curr_cursor[0:2]}"
+                                f" at {self.curr_cursor[3].start} on line \n"
+                                f"{self.curr_cursor[3].line}"
+                                f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
+                            )
                     self.exit(idx)
 
                 def evaluator(scope):
                     def generator():
-                        for val in iter_eval(scope):
+                        index_eval = iter_evals[0]
+                        for iter_eval in iter_evals[1:]:
+                            index_eval = concat(index_eval, iter_eval)
+                        for val in index_eval(scope):
                             cond = True
                             for e in comp_evals:
                                 cond = cond and e({**scope, **val})
@@ -397,7 +431,10 @@ class ModelGenerator:
 
                 def evaluator(scope):
                     n = expr_eval(scope)
-                    return range(n)
+                    if isinstance(n, int):
+                        return range(n)
+                    else:
+                        return n
 
                 return evaluator
             case ("OP", "RANGE", _, _):
