@@ -247,7 +247,9 @@ class ModelGenerator:
             case _:
                 raise CompilerError(
                     f"Expected a statement at the start of the program instead found: {self.curr_cursor[0:2]}"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def var_lhs(self):
@@ -267,7 +269,9 @@ class ModelGenerator:
             case _:
                 raise CompilerError(
                     f"Cannot assign variable {var_name} with {self.curr_cursor[0]} {self.curr_cursor[1]}"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def value(self):
@@ -276,7 +280,10 @@ class ModelGenerator:
                 return lambda scope: num
             case _:
                 raise CompilerError(
-                    f"Expected a value instead found the token {self.curr_cursor[0]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f"Expected a value instead found the token {self.curr_cursor[0]}"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def iden_lhs(self):
@@ -285,7 +292,10 @@ class ModelGenerator:
                 return var_name
             case _:
                 raise CompilerError(
-                    f"Cannot assign to variable {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f"Cannot assign to variable {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def iden_rhs(self):
@@ -295,14 +305,20 @@ class ModelGenerator:
                 def evaluator(scope):
                     if var_name not in scope:
                         raise CompilerError(
-                            f"Undefiend variable {self.curr_cursor[0:2]} at {tk_info.start} on line '{tk_info.line}'"
+                            f"Undefiend variable {self.curr_cursor[0:2]}"
+                            f" at {self.curr_cursor[3].start} on line \n"
+                            f"{self.curr_cursor[3].line}"
+                            f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                         )
                     return scope[var_name]
 
                 return evaluator
             case _:
                 raise CompilerError(
-                    f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f"Unexpected token {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def base_expr(self):
@@ -315,7 +331,10 @@ class ModelGenerator:
                 return self.value()
             case _:
                 raise CompilerError(
-                    f"Unexpected token {self.curr_cursor[0:2]} at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f"Unexpected token {self.curr_cursor[0:2]}"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def expr(self):
@@ -327,7 +346,9 @@ class ModelGenerator:
             case _:
                 raise CompilerError(
                     f"Expected an expression instead found: {self.curr_cursor[0:2]}"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def func(self):
@@ -357,7 +378,9 @@ class ModelGenerator:
             case ("FUNC", *_):
                 raise CompilerError(
                     f"Unknow function {self.curr_cursor[1]} encountered"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def compose_blocks(self, block_evals, expr_eval):
@@ -421,7 +444,9 @@ class ModelGenerator:
             case _:
                 raise CompilerError(
                     f"Expected function block instead found: {self.curr_cursor[0:2]}"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def set_expr(self):
@@ -442,7 +467,9 @@ class ModelGenerator:
             case _:
                 raise CompilerError(
                     f"Expected range operator instead found: {self.curr_cursor[0:2]}"
-                    f" at {self.curr_cursor[3].start} on line '{self.curr_cursor[3].line}'"
+                    f" at {self.curr_cursor[3].start} on line \n"
+                    f"{self.curr_cursor[3].line}"
+                    f"{' ' * (self.curr_cursor[3].start[1] - 1)}^"
                 )
 
     def op_expr(self):
