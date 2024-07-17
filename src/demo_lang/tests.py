@@ -28,6 +28,33 @@ constr forall (i:=N) (j:=N, i != j) (c1:=U) (c2:=U, c1 <= c2, c2 < c1 + d[i][j])
 constr forall (i:=N) (c1:=U) (c2:=U, c1 < c2, c2 < c1 + d[i][i]) (x[i][c1] + x[i][c2] <= 1)
 constr forall (i:=N) (c:=U) (z[0] >= (c + 1) * x[i][c])"""
 
+project_scheduling_source = """var bin x = ndarray (J, T)
+obj min (sum (t:=T) t * x[n + 1][t])
+constr forall (j:=J) (sum (t:=T) x[j][t]) == 1
+constr forall (r:=R) (t:=T) (sum (j:=J) (t2:=0:t, t2 >= (t - p[j] + 1)) u[j][r] * x[j][t2]) <= c[r]
+constr forall (j:=X, s:=Y) (sum (t:=T) t * x[s][t] - t * x[j][t]) >= p[j]"""
+
+job_scheduling_source = """var cont c = ndarray (1)
+var cont x = ndarray (n, m)
+var bin y = ndarray (n, n, m)
+obj min c[0]
+constr forall (j:=n) (i:=m, i > 0) x[j][machines[j][i]] - x[j][machines[j][i-1]] >= times[j][machines[j][i-1]]
+constr forall (j:=n) (k:=n, k != j) (i:=m) x[j][i] - x[k][i] + M*y[j][k][i] >= times[k][i]
+constr forall (j:=n) (k:=n, k != j) (i:=m) x[k][i] - x[j][i] - M*y[j][k][i] >= times[j][i] - M
+constr forall (j:=n) c[0] - x[j][machines[j][m - 1]] >= times[j][machines[j][m - 1]]"""
+
+cutting_stock_source = """var int x = ndarray (m, n)
+var bin y = ndarray (n)
+obj min sum (i:=n) y[i]
+constr forall (i:=m) (sum (j:=n) x[i][j]) >= b[i]
+constr forall (j:=n) (sum (i:=m) w[i] * x[i][j]) <= L * y[j]
+constr forall (j:=n, j > 0) y[j - 1] >= y[j]"""
+
+level_packing_source = """var bin x = ndarray (n, n)
+obj min sum (i:=n) h[i] * x[i][i]
+constr forall (i:=n) (j:=n, h[j] > h[i]) x[i][j] == 0.0
+constr forall (i:=n) (sum (j:=n, h[j] >= h[i]) x[j][i]) == 1
+constr forall (i:=n) (sum (j:=n, j != i, h[j] <= h[i]) w[j] * x[i][j]) <= (W - w[i]) * x[i][i]"""
 
 class TestParser(unittest.TestCase):
 
@@ -55,6 +82,27 @@ class TestParser(unittest.TestCase):
     def test_frequency_assignment_problem(self):
         filename = "src/demo_lang/assets/frequency_assignment_ast.pkl"
         parse_tree = compile.parse(frequency_assignment_source)
+        with open(filename, "rb") as f:
+            check_tree = pickle.load(f)
+        self.assertEqual(check_tree, parse_tree)
+
+    def test_project_scheduling_problem(self):
+        filename = "src/demo_lang/assets/project_scheduling_ast.pkl"
+        parse_tree = compile.parse(project_scheduling_source)
+        with open(filename, "rb") as f:
+            check_tree = pickle.load(f)
+        self.assertEqual(check_tree, parse_tree)
+
+    def test_job_scheduling_problem(self):
+        filename = "src/demo_lang/assets/job_scheduling_ast.pkl"
+        parse_tree = compile.parse(job_scheduling_source)
+        with open(filename, "rb") as f:
+            check_tree = pickle.load(f)
+        self.assertEqual(check_tree, parse_tree)
+
+    def test_cutting_stock_problem(self):
+        filename = "src/demo_lang/assets/cutting_stock_ast.pkl"
+        parse_tree = compile.parse(cutting_stock_source)
         with open(filename, "rb") as f:
             check_tree = pickle.load(f)
         self.assertEqual(check_tree, parse_tree)
@@ -170,7 +218,7 @@ class TestEvaluator(unittest.TestCase):
         ]
         n = 40
         gen = compile.ModelGenerator(
-            "N-Queens Proble",
+            "N-Queens Problem",
             n_queens_source,
             {
                 "n": n,
@@ -186,7 +234,7 @@ class TestEvaluator(unittest.TestCase):
                     attempt.append((i, j))
         self.assertEqual(solution, attempt)
 
-    def test_frequency_assignment(self):
+    def test_frequency_assignment_problem(self):
         solution = [
             [6, 12, 32],
             [4, 10, 16, 22, 28],
@@ -211,7 +259,7 @@ class TestEvaluator(unittest.TestCase):
         N = len(r)
         U = sum(d[i][j] for (i, j) in product(range(N), range(N))) + sum(el for el in r)
         gen = compile.ModelGenerator(
-            "Frequency Assignment",
+            "Frequency Assignment Problem",
             frequency_assignment_source,
             {
                 "r": r,
@@ -229,6 +277,140 @@ class TestEvaluator(unittest.TestCase):
                 attempt.append([c for c in range(U) if scope["x"][i][c].x >= 0.99])
         self.assertEqual(solution, attempt)
 
+    def test_project_scheduling_problem(self):
+        obj_val = 21.0
+        solution = [0, 0, 0, 6, 3, 3, 11, 7, 14, 17, 11, 21]
+        n = 10
+        p = [0, 3, 2, 5, 4, 2, 3, 4, 2, 4, 6, 0]
+        u = [
+            [0, 0],
+            [5, 1],
+            [0, 4],
+            [1, 4],
+            [1, 3],
+            [3, 2],
+            [3, 1],
+            [2, 4],
+            [4, 0],
+            [5, 2],
+            [2, 5],
+            [0, 0],
+        ]
+        c = [6, 8]
+        X = [0, 0, 0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 7, 8, 9, 10]
+        Y = [1, 2, 3, 4, 5, 9, 10, 8, 6, 7, 9, 10, 8, 9, 8, 11, 11, 11]
+        R = len(c)
+        J = len(p)
+        T = sum(p)
+        gen = compile.ModelGenerator(
+            "Resource Constrained Project Scheduling Problem",
+            project_scheduling_source,
+            {
+                "n": n,
+                "p": p,
+                "u": u,
+                "c": c,
+                "X": X,
+                "Y": Y,
+                "R": R,
+                "J": J,
+                "T": T,
+            },
+        )
+        scope = gen.generate()
+        gen.model.verbose = 0
+        gen.model.optimize()
+        self.assertAlmostEqual(gen.model.objective_value, obj_val)
+        attempt = []
+        for j in range(J):
+            for t in range(T):
+                if scope["x"][j][t].x >= 0.99:
+                    attempt.append(t)
+        self.assertEqual(solution, attempt)
+
+    def test_job_scheduling_problem(self):
+        obj_val = 7.0
+        solution = [2.0, 5.0, 0.0, 5.0, 0.0, 3.0, 6.0, 3.0, 2.0]
+        n = m = 3
+        times = [[2, 1, 2], [1, 2, 2], [1, 2, 1]]
+        M = sum(times[i][j] for i in range(n) for j in range(m))
+        machines = [[2, 0, 1], [1, 2, 0], [2, 1, 0]]
+        gen = compile.ModelGenerator(
+            "Job Shop Scheduling Problem",
+            job_scheduling_source,
+            {
+                "n": n,
+                "m": m,
+                "times": times,
+                "M": M,
+                "machines": machines,
+            },
+        )
+        scope = gen.generate()
+        gen.model.verbose = 0
+        gen.model.optimize()
+        self.assertAlmostEqual(gen.model.objective_value, obj_val)
+        attempt = []
+        for j in range(n):
+            for i in range(m):
+                attempt.append(scope["x"][j][i].x)
+        self.assertAlmostEqual(attempt, solution)
+        
+    def test_cutting_stock_problem(self):
+        obj_val = 3.0
+        solution_x = [[(0, 0, 1.0)], [(1, 2, 2.0)], [(2, 1, 2.0)], [(3, 1, 1.0)]]
+        solution_y = [(0, 1.0), (1, 1.0), (2, 1.0)]
+        n = 10  # maximum number of bars
+        L = 250  # bar length
+        m = 4  # number of requests
+        w = [187, 119, 74, 90]  # size of each item
+        b = [1, 2, 2, 1]  # demand for each item
+        gen = compile.ModelGenerator(
+            "Cutting Stock Problem",
+            cutting_stock_source,
+            {
+                "n": n,
+                "L": L,
+                "m": m,
+                "w": w,
+                "b": b,
+            }
+        )
+        scope = gen.generate()
+        gen.model.verbose = 0
+        gen.model.optimize()
+        self.assertAlmostEqual(gen.model.objective_value, obj_val)
+        attempt_x = [[(i, j, scope['x'][i][j].x) for j in range(n) if scope['x'][i][j].x > 1e-5] for i in range(m)]
+        attempt_y = [(i, scope['y'][i].x) for i in range(n) if scope['y'][i].x > 1e-5]
+        self.assertAlmostEqual(attempt_x, solution_x)
+        self.assertAlmostEqual(attempt_y, solution_y)
+
+    def test_level_packing_problem(self):
+        solution = [[2], [5, 7], [3, 6]]
+        w = [4, 3, 5, 2, 1, 4, 7, 3]  # widths
+        h = [2, 4, 1, 5, 6, 3, 5, 4]  # heights
+        n = len(w)
+        W = 10
+        gen = compile.ModelGenerator(
+            "Level Packing Problem",
+            level_packing_source,
+            {
+                "w": w,
+                "h": h,
+                "n": n,
+                "W": W,
+            }
+        )
+        scope = gen.generate()
+        gen.model.verbose = 0
+        gen.model.optimize()
+        attempt = []
+        for i in [j for j in range(n) if scope['x'][j][j].x >= 0.99]:
+            attempt.append(
+                    [j for j in range(n) if i != j and h[j] <= h[i] and scope['x'][i][j].x >= 0.99]
+            )
+        self.assertEqual(attempt, solution)
+        
 
 if __name__ == "__main__":
     unittest.main()
