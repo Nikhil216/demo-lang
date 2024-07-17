@@ -52,12 +52,12 @@ def parse(source):
         | tk='<'                                            { ('OP', 'LT', tk) }
         | tk='>'                                            { ('OP', 'GT', tk) }
     add_sub_op_expr:
-        | lhs=mul_div_op_expr op='+' rhs=add_sub_op_expr    { ('OP', 'ADD', [lhs, rhs], op) }
-        | lhs=mul_div_op_expr op='-' rhs=add_sub_op_expr    { ('OP', 'SUB', [lhs, rhs], op) }
+        | lhs=add_sub_op_expr op='+' rhs=mul_div_op_expr    { ('OP', 'ADD', [lhs, rhs], op) }
+        | lhs=add_sub_op_expr op='-' rhs=mul_div_op_expr    { ('OP', 'SUB', [lhs, rhs], op) }
         | mul_div_op_expr
     mul_div_op_expr:
-        | lhs=base_expr op='*' rhs=mul_div_op_expr         { ('OP', 'MUL', [lhs, rhs], op) }
-        | lhs=base_expr op='/' rhs=mul_div_op_expr         { ('OP', 'DIV', [lhs, rhs], op) }
+        | lhs=mul_div_op_expr op='*' rhs=base_expr         { ('OP', 'MUL', [lhs, rhs], op) }
+        | lhs=mul_div_op_expr op='/' rhs=base_expr         { ('OP', 'DIV', [lhs, rhs], op) }
         | base_expr
     base_expr:
         | tk='(' val=expr ')'                               { ('OP', 'PAREN', [val], tk) }
