@@ -1,3 +1,4 @@
+import ast
 from collections.abc import Generator
 import io
 import tokenize
@@ -66,7 +67,7 @@ def parse(source):
         | value
     slice_expr: val=iden idx=sub_op+                        { ('OP', 'SLICE', [val, *idx], val[3]) }
     sub_op: '[' add_sub_op_expr ']'                         { add_sub_op_expr }
-    value: NUMBER                                           { ('VALUE', int(number.string), [], number) }
+    value: NUMBER                                           { ('VALUE', ast.literal_eval(number.string), [], number) }
     iden: NAME                                              { ('IDEN', name.string, [], name) }
     """
 
