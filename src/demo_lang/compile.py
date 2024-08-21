@@ -101,14 +101,14 @@ def append(fst, snd):
     return evaluator
 
 
-def concat(fst, snd):
+def zip_(fst, snd):
     def evaluator(scope):
         def generator():
             for f, s in zip(fst(scope), snd(scope)):
                 yield {**f, **s}
-            
+
         return generator()
-    
+
     return evaluator
 
 
@@ -431,7 +431,7 @@ class ModelGenerator:
                     def generator():
                         index_eval = iter_evals[0]
                         for iter_eval in iter_evals[1:]:
-                            index_eval = concat(index_eval, iter_eval)
+                            index_eval = zip_(index_eval, iter_eval)
                         for val in index_eval(scope):
                             cond = True
                             for e in comp_evals:
