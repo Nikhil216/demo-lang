@@ -30,6 +30,10 @@ The evaluator uses a space efficient way of traversing through the syntax tree. 
 
 ## What runtime? It's python baby!
 
+The job of the execution engine is to emit a python object of `mip.model.Model` rather than some bytecode or native code. So the execution engine evaluates all the expression as python expressions and builds a `mip.model.Model`. This raises the question, does it really have a runtime?
+
+Demo lang, as previously mentioned, relies heavily on python. In this case, it 
+
 ## The problem with scope
 
 Demo lang has no way of declaring its own data structures other than ndarray of `mip.var`. For sake of writing useful programs, we should be able to use variables which contains data. Thus demo lang has all the variables available from the local python scope. Once the demo lang programs are run, we would like to have the declared variables in demo lang back into the python scope. But the requirements of scope goes further than this.
@@ -100,6 +104,7 @@ sum([x[i][j] for i, j in product(range(m), range(n)) if i < j])
 Now, not only we need to pass all the iterator variables to the scope of the expression, we also need pass the iterator defined in the previous block to be present in the scope of the next block.
 
 Thus the goal at hand are
+
 1. The return values of these node visit should be a computation which can be evaluated in the future. These 'can be evaluated' values will be named evaluators[4].
 2. These evaluators should be composable.
 3. When composed they should be able to share the scope with each other.
@@ -114,41 +119,154 @@ Now it's clear that the similarity between call stack and scope stack is not a c
 
 ## Thunks all the way down
 
+The idea of an expression being stored in a value which can be evaluated later fits the description of closures. Indeed the visitor methods in `demo_lang.compile.ModelGenerator` return a closure named evaluator. When this closure is called, it evaluates a python expression and return a concrete value. The argument to this closure is the current scope. Now we see how these evaluators are composed.
 
+Let's pick the simplest example
+
+```python
+sum (j := n) x[j]
+```
+
+The expression body of sum will emit an evaluator, which in python can be written as
+
+```python
+def evaluator():
+    return x[j]
+```
+
+Since both `x` and `j` are free variables, we must provide them through scope.
+
+```python
+def evaluator(scope):
+    x = scope['x']
+    j = scope['j']
+    return x[j]
+```
+
+Similarly, the block will also emit an evaluator
+
+```python
+def evaluator(scope):
+    return ({'j': j} for j in range(n))
+```
+
+The return value of this evaluator is a python generator. This generator iterates over the `range(n)` and returns a scope!
+
+```python
+{ 'j' : j }
+```
+
+This is a neat trick as will come to see. Once the block and expression nodes are visited, the sum node will return its own evaluator. To disambiguate, we will name each evaluator separately.
+
+```python
+def evaluator_sum(scope):
+    acc = 0
+    for local_scope in evaluator_block(scope):
+        acc += evaluator_expression({**scope, **local_scope})
+    return acc
+```
+
+Since evaluators are just python functions we can compose them in any way we want, as long as its valid python. The interesting point to notice is that the evaluators are nested, i.e. they call each other, thus acts like a call stack. To be fair the call stack we are describing is actually python's call stack. This is only possible because we choose our evaluators to be plain python functions. The added benefit we get is the scope also follows a stack due to python's lexical scoping. When we refer to closures, we mean lexical closure as the free variables are assigned by lexical scoping. Thus closures by their mere definition satisfy all four goal we set out to have for our evaluators.
+
+## Composition of blocks
+
+As we had seen in the [previous section](#the-problem-with-scope) blocks compose in many ways. There are three things to take case about:
+
+1. blocks should form cartesian product
+2. blocks should form zips
+3. blocks should filter values on conditions
+
+First we'll talk about compositions. The evaluators of a block emits a generator which yields scope. Thus the question of composition of block evaluators reduces to the question of composition of scopes. Scopes are just key value pairs represented by python dictionaries. Thus we need to answer two questions
+
+1. how to compose scopes as products
+2. how to comose scopes as zips
+
+The zips one is straight forward. If we have two iterators
+
+```python
+(i := m, j := n)
+```
+
+the scopes we get per iteration will be (where m < n)
+
+```python
+{ 'i': 0 }, { 'j': 0 }
+{ 'i': 1 }, { 'j': 1 }
+{ 'i': 2 }, { 'j': 2 }
+  ...     ,   ...
+{ 'i': m-1 }, { 'j': m-1 }
+```
+
+Zipping these two iterators will simply mean we should combine the scope at each iteration such that both `i` and `j` should be in scope when evaluated. This will result in an iteration
+
+```python
+{ 'i': 0, 'j': 0 }
+{ 'i': 1, 'j': 1 }
+{ 'i': 2, 'j': 2 }
+  ...     ,   ...
+{ 'i': m-1, 'j': m-1 }
+```
+
+The generated evaluator will look something like
+
+```python
+def eval_iter_1(scope):
+    m = scope['m']
+    return ({ 'i': i } for i in range(m))
+
+def eval_iter_2(scope):
+    n = scope['n']
+    return ({ 'j': j } for j in range(n))
+
+def eval_iter_zip(scope):
+    return ({ **scope_1, **scope_2 } for scope_1, scope_2 in zip(eval_iter_1(scope), eval_iter_2(scope)))
+```
+
+The product of two iterators will generate m x n iteration with every possible combination between i and j. It looks something like
+
+```python
+{ 'i': 0, 'j': 0}
+{ 'i': 0, 'j': 1}
+   ...  ,   ...
+{ 'i': 0, 'j': n-1}
+{ 'i': 1, 'j': 0}
+{ 'i': 1, 'j': 1}
+   ...  ,   ...
+{ 'i': 1, 'j': n-1}
+{ 'i': 2, 'j': 0}
+   ...  ,   ...
+   ...  ,   ...
+{ 'i': m-1, 'j': n-1}
+```
+
+The neat trick about this composition is that we have to replace just the `zip` function with `product` function and the evaulator behaves just as we want.
+
+```python
+def eval_iter_1(scope):
+    m = scope['m']
+    return ({ 'i': i } for i in range(m))
+
+def eval_iter_2(scope):
+    n = scope['n']
+    return ({ 'j': j } for j in range(n))
+
+def eval_iter_product(scope):
+    return ({ **scope_1, **scope_2 } for scope_1, scope_2 in product(eval_iter_1(scope), eval_iter_2(scope)))
+```
+
+> Excersice: Readers are encouraged to verify whether these evaluators produce the appropriate generators.
+
+As we have seen, composing two block/iterator evaluators is the same as composing two generators returning scope. The reason we can compose two evaluators is we can compose two scopes trivially. Composition of dictionary is just creating a new dictionary with all the key value pairs in both the dictionaries.
+
+```python
+{ **scope_1, **scope_2 }
+```
+
+Along with iterator, a block can also contain conditions. These condition filter out values which satisfy all the conditions in a given block. These conditions don't affect the composition of blocks.
 
 ## Notes
 
 1. Mixed integer programming has nothing to do with computer programming and everything to do with optimization of problems.
-2. Assuming that the value of `x` has been defined in some preceding statment in the program.
+2. Assuming that the value of `x` has been defined in some preceding statment in the program. The same is true for `n`.
 3. We do actually use mutable global scope because a demo lang program consists of var statements which sets the variables in the program scope. As only the var statement can mutate state and the rest of the language consists of expressions, we can say the mutation problem is highly contained.
-4. In compiler parlance such a things is called a thunk.
-
-
-```python
-forall (i := 1..n) (sum (j := 1..n) x[i][j] == 1)
-```
-
-The syntax tree generated for this expression would be
-
-```python
-('FUNC', 'FORALL', [
-    ('OP', 'EQ', [
-        ('OP', 'PAREN', [
-            ('FUNC', 'SUM', [
-                ('OP', 'SLICE', [
-                    ('IDEN', 'x', []),
-                    ('IDEN', 'i', []),
-                    ('IDEN', 'j', [])]),
-                ('BLOCK', None, [
-                    ('OP', 'ITER', [
-                        ('RANGE', None, [
-                            ('VALUE', 1, []),
-                            ('IDEN', 'n', [])])])])])]),
-        ('VALUE', 1, [])]),
-    ('BLOCK', None, [
-        ('OP', 'ITER', [
-            ('IDEN', 'i', []),
-            ('RANGE', None, [
-                ('VALUE', 1, []),
-                ('IDEN', 'n', [])])])])])
-```
+4. In compiler parlance such a thing is called a thunk.
