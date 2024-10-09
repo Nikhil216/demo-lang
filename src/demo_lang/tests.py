@@ -3,109 +3,72 @@ import pickle
 import unittest
 from . import compile
 
-knapsack_source = """var bin x = ndarray (I)
+sources = {
+    "knapsack": """var bin x = ndarray (I)
 obj max sum (i:=I) p[i] * x[i]
-constr (sum (i:=I) w[i] * x[i]) <= c"""
-
-travelling_salesman_source = """var bin x = ndarray (n, n)
+constr (sum (i:=I) w[i] * x[i]) <= c""",
+    "travelling_salesman": """var bin x = ndarray (n, n)
 var cont y = ndarray (n)
 obj min sum (i:=n) (j:=n) c[i][j] * x[i][j]
 constr forall (i:=n) (sum (j:=n, i != j) x[i][j]) == 1
 constr forall (i:=n) (sum (j:=n, i != j) x[j][i]) == 1
-constr forall (i:=n, i != 0) (j:=n, j != 0, i != j) y[i] - (n + 1) * x[i][j] >= y[j] - n"""
-
-n_queens_source = """var bin x = ndarray (n, n)
+constr forall (i:=n, i != 0) (j:=n, j != 0, i != j) y[i] - (n + 1) * x[i][j] >= y[j] - n""",
+    "n_queens": """var bin x = ndarray (n, n)
 constr forall (i:=n) (sum (j:=n) x[i][j]) == 1
 constr forall (j:=n) (sum (i:=n) x[i][j]) == 1
 constr forall (k:=2-n:n-2) (sum (i:=n, 0 <= i - k, i - k < n) x[i][i - k]) <= 1
-constr forall (k:=1:2*n-3) (sum (i:=n, 0 <= k - i, k - i < n) x[i][k - i]) <= 1"""
-
-frequency_assignment_source = """var bin x = ndarray(N, U)
+constr forall (k:=1:2*n-3) (sum (i:=n, 0 <= k - i, k - i < n) x[i][k - i]) <= 1""",
+    "frequency_assignment": """var bin x = ndarray(N, U)
 var cont z = ndarray(1)
 obj min z[0]
 constr forall (i:=N) (sum (c:=U) x[i][c]) == r[i]
 constr forall (i:=N) (j:=N, i != j) (c1:=U) (c2:=U, c1 <= c2, c2 < c1 + d[i][j]) (x[i][c1] + x[j][c2] <= 1)
 constr forall (i:=N) (c1:=U) (c2:=U, c1 < c2, c2 < c1 + d[i][i]) (x[i][c1] + x[i][c2] <= 1)
-constr forall (i:=N) (c:=U) (z[0] >= (c + 1) * x[i][c])"""
-
-project_scheduling_source = """var bin x = ndarray (J, T)
+constr forall (i:=N) (c:=U) (z[0] >= (c + 1) * x[i][c])""",
+    "project_scheduling": """var bin x = ndarray (J, T)
 obj min (sum (t:=T) t * x[n + 1][t])
 constr forall (j:=J) (sum (t:=T) x[j][t]) == 1
 constr forall (r:=R) (t:=T) (sum (j:=J) (t2:=0:t, t2 >= (t - p[j] + 1)) u[j][r] * x[j][t2]) <= c[r]
-constr forall (j:=X, s:=Y) (sum (t:=T) t * x[s][t] - t * x[j][t]) >= p[j]"""
-
-job_scheduling_source = """var cont c = ndarray (1)
+constr forall (j:=X, s:=Y) (sum (t:=T) t * x[s][t] - t * x[j][t]) >= p[j]""",
+    "job_scheduling": """var cont c = ndarray (1)
 var cont x = ndarray (n, m)
 var bin y = ndarray (n, n, m)
 obj min c[0]
 constr forall (j:=n) (i:=m, i > 0) x[j][machines[j][i]] - x[j][machines[j][i-1]] >= times[j][machines[j][i-1]]
 constr forall (j:=n) (k:=n, k != j) (i:=m) x[j][i] - x[k][i] + M*y[j][k][i] >= times[k][i]
 constr forall (j:=n) (k:=n, k != j) (i:=m) x[k][i] - x[j][i] - M*y[j][k][i] >= times[j][i] - M
-constr forall (j:=n) c[0] - x[j][machines[j][m - 1]] >= times[j][machines[j][m - 1]]"""
-
-cutting_stock_source = """var int x = ndarray (m, n)
+constr forall (j:=n) c[0] - x[j][machines[j][m - 1]] >= times[j][machines[j][m - 1]]""",
+    "cutting_stock": """var int x = ndarray (m, n)
 var bin y = ndarray (n)
 obj min sum (i:=n) y[i]
 constr forall (i:=m) (sum (j:=n) x[i][j]) >= b[i]
 constr forall (j:=n) (sum (i:=m) w[i] * x[i][j]) <= L * y[j]
-constr forall (j:=n, j > 0) y[j - 1] >= y[j]"""
-
-level_packing_source = """var bin x = ndarray (n, n)
+constr forall (j:=n, j > 0) y[j - 1] >= y[j]""",
+    "level_packing": """var bin x = ndarray (n, n)
 obj min sum (i:=n) h[i] * x[i][i]
 constr forall (i:=n) (j:=n, h[j] > h[i]) x[i][j] == 0.0
 constr forall (i:=n) (sum (j:=n, h[j] >= h[i]) x[j][i]) == 1
-constr forall (i:=n) (sum (j:=n, j != i, h[j] <= h[i]) w[j] * x[i][j]) <= (W - w[i]) * x[i][i]"""
+constr forall (i:=n) (sum (j:=n, j != i, h[j] <= h[i]) w[j] * x[i][j]) <= (W - w[i]) * x[i][i]""",
+}
 
-class TestParser(unittest.TestCase):
 
-    def test_n_queens_problem(self):
-        filename = "src/demo_lang/assets/n_queens_ast.pkl"
-        parse_tree = compile.parse(n_queens_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
+class TestParserMeta(type):
+    def __new__(cls, name, bases, attrs):
+        for test_name, source in sources.items():
 
-    def test_travelling_salesman_problem(self):
-        filename = "src/demo_lang/assets/travelling_salesman_ast.pkl"
-        parse_tree = compile.parse(travelling_salesman_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
+            def problem(self):
+                filename = f"src/demo_lang/assets/{test_name}_ast.pkl"
+                parse_tree = compile.parse(source)
+                with open(filename, "rb") as f:
+                    check_tree = pickle.load(f)
+                self.assertEqual(check_tree, parse_tree)
 
-    def test_knapsack_problem(self):
-        filename = "src/demo_lang/assets/knapsack_ast.pkl"
-        parse_tree = compile.parse(knapsack_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
+            problem.__name__ = f"test_{test_name}_problem"
+            attrs[test_name] = problem
+        return super().__new__(cls, name, bases, attrs)
 
-    def test_frequency_assignment_problem(self):
-        filename = "src/demo_lang/assets/frequency_assignment_ast.pkl"
-        parse_tree = compile.parse(frequency_assignment_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
 
-    def test_project_scheduling_problem(self):
-        filename = "src/demo_lang/assets/project_scheduling_ast.pkl"
-        parse_tree = compile.parse(project_scheduling_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
-
-    def test_job_scheduling_problem(self):
-        filename = "src/demo_lang/assets/job_scheduling_ast.pkl"
-        parse_tree = compile.parse(job_scheduling_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
-
-    def test_cutting_stock_problem(self):
-        filename = "src/demo_lang/assets/cutting_stock_ast.pkl"
-        parse_tree = compile.parse(cutting_stock_source)
-        with open(filename, "rb") as f:
-            check_tree = pickle.load(f)
-        self.assertEqual(check_tree, parse_tree)
+class TestParser(unittest.TestCase, metaclass=TestParserMeta): ...
 
 
 class TestEvaluator(unittest.TestCase):
@@ -113,7 +76,7 @@ class TestEvaluator(unittest.TestCase):
     def test_knapsack_problem(self):
         gen = compile.ModelGenerator(
             "knapsack",
-            knapsack_source,
+            sources["knapsack"],
             {
                 "p": [10, 13, 18, 31, 7, 15],
                 "w": [11, 15, 20, 35, 10, 33],
@@ -154,7 +117,7 @@ class TestEvaluator(unittest.TestCase):
         ]
         gen = compile.ModelGenerator(
             "Travelling Salesman Problem",
-            travelling_salesman_source,
+            sources["travelling_salesman"],
             {
                 "n": n,
                 "c": c,
@@ -219,7 +182,7 @@ class TestEvaluator(unittest.TestCase):
         n = 40
         gen = compile.ModelGenerator(
             "N-Queens Problem",
-            n_queens_source,
+            sources["n_queens"],
             {
                 "n": n,
             },
@@ -260,7 +223,7 @@ class TestEvaluator(unittest.TestCase):
         U = sum(d[i][j] for (i, j) in product(range(N), range(N))) + sum(el for el in r)
         gen = compile.ModelGenerator(
             "Frequency Assignment Problem",
-            frequency_assignment_source,
+            sources["frequency_assignment"],
             {
                 "r": r,
                 "d": d,
@@ -304,7 +267,7 @@ class TestEvaluator(unittest.TestCase):
         T = sum(p)
         gen = compile.ModelGenerator(
             "Resource Constrained Project Scheduling Problem",
-            project_scheduling_source,
+            sources["project_scheduling"],
             {
                 "n": n,
                 "p": p,
@@ -337,7 +300,7 @@ class TestEvaluator(unittest.TestCase):
         machines = [[2, 0, 1], [1, 2, 0], [2, 1, 0]]
         gen = compile.ModelGenerator(
             "Job Shop Scheduling Problem",
-            job_scheduling_source,
+            sources["job_scheduling"],
             {
                 "n": n,
                 "m": m,
@@ -355,7 +318,7 @@ class TestEvaluator(unittest.TestCase):
             for i in range(m):
                 attempt.append(scope["x"][j][i].x)
         self.assertAlmostEqual(attempt, solution)
-        
+
     def test_cutting_stock_problem(self):
         obj_val = 3.0
         solution_x = [[(0, 0, 1.0)], [(1, 2, 2.0)], [(2, 1, 2.0)], [(3, 1, 1.0)]]
@@ -367,21 +330,24 @@ class TestEvaluator(unittest.TestCase):
         b = [1, 2, 2, 1]  # demand for each item
         gen = compile.ModelGenerator(
             "Cutting Stock Problem",
-            cutting_stock_source,
+            sources["cutting_stock"],
             {
                 "n": n,
                 "L": L,
                 "m": m,
                 "w": w,
                 "b": b,
-            }
+            },
         )
         scope = gen.generate()
         gen.model.verbose = 0
         gen.model.optimize()
         self.assertAlmostEqual(gen.model.objective_value, obj_val)
-        attempt_x = [[(i, j, scope['x'][i][j].x) for j in range(n) if scope['x'][i][j].x > 1e-5] for i in range(m)]
-        attempt_y = [(i, scope['y'][i].x) for i in range(n) if scope['y'][i].x > 1e-5]
+        attempt_x = [
+            [(i, j, scope["x"][i][j].x) for j in range(n) if scope["x"][i][j].x > 1e-5]
+            for i in range(m)
+        ]
+        attempt_y = [(i, scope["y"][i].x) for i in range(n) if scope["y"][i].x > 1e-5]
         self.assertAlmostEqual(attempt_x, solution_x)
         self.assertAlmostEqual(attempt_y, solution_y)
 
@@ -393,24 +359,28 @@ class TestEvaluator(unittest.TestCase):
         W = 10
         gen = compile.ModelGenerator(
             "Level Packing Problem",
-            level_packing_source,
+            sources["level_packing"],
             {
                 "w": w,
                 "h": h,
                 "n": n,
                 "W": W,
-            }
+            },
         )
         scope = gen.generate()
         gen.model.verbose = 0
         gen.model.optimize()
         attempt = []
-        for i in [j for j in range(n) if scope['x'][j][j].x >= 0.99]:
+        for i in [j for j in range(n) if scope["x"][j][j].x >= 0.99]:
             attempt.append(
-                    [j for j in range(n) if i != j and h[j] <= h[i] and scope['x'][i][j].x >= 0.99]
+                [
+                    j
+                    for j in range(n)
+                    if i != j and h[j] <= h[i] and scope["x"][i][j].x >= 0.99
+                ]
             )
         self.assertEqual(attempt, solution)
-        
+
 
 if __name__ == "__main__":
     unittest.main()
